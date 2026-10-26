@@ -4,9 +4,10 @@
 // boards, which is D2 on a Wemos D1 mini or NodeMCU).
 //
 // Serial 115200 baud, one command per line:
-//   0..270   turn to that angle, e.g. "90"
+//   0..max   turn to that angle, e.g. "90" (max is 270 unless set with "m")
 //   s<n>     speed in ms per degree, e.g. "s10" (3 = fastest, default 15)
-//   ?        print position, target and speed
+//   m<n>     servo travel in degrees, e.g. "m180" (default 270, saved in flash)
+//   ?        print position, target, speed and max
 //
 // Replies:
 //   MOVING <from> -> <to>   command accepted
@@ -16,19 +17,25 @@
 #include <Arduino.h>
 
 #if defined(ESP8266)
+#include <EEPROM.h>
 #include <ESP8266WiFi.h>
 #include <Servo.h>
+#else
+#include <Preferences.h>
 #endif
 
 #ifndef SERVO_PIN
 #define SERVO_PIN 4
 #endif
 
-const int MAX_DEG   = 270;
-const int START_DEG = 135;  // middle; the servo goes here on power-up
+// Servo travel: the angle MIN_US..MAX_US turns it through. 270 for a 270°
+// MG995, 180 for the common 180° one. Set with "m<deg>", kept across restarts.
+const int DEFAULT_MAX_DEG = 180;
+const int MAX_DEG_LOW     = 10;
+const int MAX_DEG_HIGH    = 360;
 
-// Pulse widths for 0° and 270°. Most 270° MG995s use 500..2500 us;
-// if the ends don't line up with 0 and 270, adjust these.
+// Pulse widths for 0° and max. Most MG995s use 500..2500 us;
+// if the ends don't line up with 0 and max, adjust these.
 const int MIN_US = 500;
 const int MAX_US = 2500;
 
@@ -36,8 +43,9 @@ const unsigned long MIN_MS_PER_DEG = 3;    // about the MG995's top speed
 const unsigned long MAX_MS_PER_DEG = 1000;
 const unsigned long SETTLE_MS = 300;       // wait after the last step before "AT"
 
-int currentDeg = START_DEG;
-int targetDeg  = START_DEG;
+int maxDeg = DEFAULT_MAX_DEG;
+int currentDeg;  // both start at maxDeg / 2, the middle, set in setup()
+int targetDeg;
 unsigned long msPerDeg = 15;  // full 270° turn in ~4 s, gentle on the router
 unsigned long lastStepMs = 0;
 bool reported = false;
@@ -70,8 +78,52 @@ void servoWriteUs(int us) {
 #endif
 
 int degToUs(int deg) {
-  return map(deg, 0, MAX_DEG, MIN_US, MAX_US);
+  return map(deg, 0, maxDeg, MIN_US, MAX_US);
 }
+
+// Change the travel without moving the platform: positions are rescaled so
+// they still point at the same pulse widths.
+void setMaxDeg(int deg) {
+  currentDeg = (currentDeg * deg + maxDeg / 2) / maxDeg;
+  targetDeg  = (targetDeg * deg + maxDeg / 2) / maxDeg;
+  maxDeg = deg;
+}
+
+// --- Saved settings --------------------------------------------------------
+// Survives restarts. Erasing the flash, or installing an ESP32 image from the
+// web flasher, resets it to the default.
+
+#if defined(ESP8266)
+const uint16_t SETTINGS_MAGIC = 0x5346;  // tells our data from whatever was in flash
+
+struct Settings {
+  uint16_t magic;
+  uint16_t maxDeg;
+};
+
+int loadMaxDeg() {
+  EEPROM.begin(sizeof(Settings));
+  Settings s;
+  EEPROM.get(0, s);
+  return s.magic == SETTINGS_MAGIC ? s.maxDeg : 0;
+}
+
+void saveMaxDeg(int deg) {
+  EEPROM.put(0, Settings{SETTINGS_MAGIC, (uint16_t)deg});
+  EEPROM.commit();
+}
+#else
+Preferences prefs;
+
+int loadMaxDeg() {
+  prefs.begin("turntable");
+  return prefs.getUShort("max_deg", 0);
+}
+
+void saveMaxDeg(int deg) {
+  prefs.putUShort("max_deg", deg);
+}
+#endif
 
 // --- Serial ports ----------------------------------------------------------
 
@@ -107,7 +159,21 @@ void handleLine(char *cmd) {
   if (*cmd == '\0') return;
 
   if (*cmd == '?') {
-    say("POS %d TARGET %d SPEED %lu", currentDeg, targetDeg, msPerDeg);
+    say("POS %d TARGET %d SPEED %lu MAX %d", currentDeg, targetDeg, msPerDeg, maxDeg);
+    return;
+  }
+
+  if (*cmd == 'm' || *cmd == 'M') {
+    long val = strtol(cmd + 1, &end, 10);
+    if (end == cmd + 1 || *end != '\0' || val < MAX_DEG_LOW || val > MAX_DEG_HIGH) {
+      say("ERR max must be m%d..m%d (degrees the servo turns)", MAX_DEG_LOW, MAX_DEG_HIGH);
+      return;
+    }
+    if (val != maxDeg) {
+      setMaxDeg(val);
+      saveMaxDeg(val);
+    }
+    say("MAX %d", maxDeg);
     return;
   }
 
@@ -123,8 +189,8 @@ void handleLine(char *cmd) {
   }
 
   long val = strtol(cmd, &end, 10);
-  if (end == cmd || *end != '\0' || val < 0 || val > MAX_DEG) {
-    say("ERR angle must be a whole number 0..%d", MAX_DEG);
+  if (end == cmd || *end != '\0' || val < 0 || val > maxDeg) {
+    say("ERR angle must be a whole number 0..%d", maxDeg);
     return;
   }
   targetDeg = val;
@@ -177,12 +243,16 @@ void setup() {
   WiFi.mode(WIFI_OFF);
 #endif
 
+  int saved = loadMaxDeg();
+  if (saved >= MAX_DEG_LOW && saved <= MAX_DEG_HIGH) maxDeg = saved;
+  currentDeg = targetDeg = maxDeg / 2;
+
   servoBegin();
-  servoWriteUs(degToUs(START_DEG));
+  servoWriteUs(degToUs(currentDeg));
   lastStepMs = millis();
 
   say("");
-  say("Turntable ready. Send 0..%d (degrees), s<ms/deg> for speed, ? for status.", MAX_DEG);
+  say("Turntable ready. Send 0..%d (degrees), s<ms/deg> for speed, m<deg> for max, ? for status.", maxDeg);
 }
 
 void loop() {

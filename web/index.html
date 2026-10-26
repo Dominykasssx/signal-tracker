@@ -180,9 +180,10 @@
         <table>
           <thead><tr><th>Send</th><th>Does</th><th>Reply</th></tr></thead>
           <tbody>
-            <tr><td><code>90</code></td><td>Turn to 90° (any whole number 0–270)</td><td><code>MOVING 135 -> 90</code>, then <code>AT 90</code> once it has stopped</td></tr>
+            <tr><td><code>90</code></td><td>Turn to 90° (any whole number from 0 to max)</td><td><code>MOVING 135 -> 90</code>, then <code>AT 90</code> once it has stopped</td></tr>
             <tr><td><code>s10</code></td><td>Speed in ms per degree (3–1000, default 15)</td><td><code>SPEED 10</code></td></tr>
-            <tr><td><code>?</code></td><td>Status</td><td><code>POS 90 TARGET 90 SPEED 15</code></td></tr>
+            <tr><td><code>m180</code></td><td>Max: how far your servo turns (10–360, default 270). Saved on the board.</td><td><code>MAX 180</code></td></tr>
+            <tr><td><code>?</code></td><td>Status</td><td><code>POS 90 TARGET 90 SPEED 15 MAX 270</code></td></tr>
           </tbody>
         </table>
       </div>

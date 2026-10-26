@@ -1,6 +1,6 @@
 # Signal Finder
 
-Firmware for a rotating platform: an ESP8266 or ESP32 drives an MG995 270° servo, and you send it angles over USB serial. Mount a router on top, turn it, read the signal at each angle, keep the best one.
+Firmware for a rotating platform: an ESP8266 or ESP32 drives an MG995 servo (270° or 180°), and you send it angles over USB serial. Mount a router on top, turn it, read the signal at each angle, keep the best one.
 
 ## Flash it
 
@@ -57,15 +57,16 @@ Don't power the servo from the board's 5V pin: its current spikes reset the ESP.
 
 | Send | Does | Reply |
 |---|---|---|
-| `90` | Turn to 90° (whole numbers 0–270) | `MOVING 135 -> 90`, then `AT 90` once stopped |
+| `90` | Turn to 90° (whole numbers 0 to max) | `MOVING 135 -> 90`, then `AT 90` once stopped |
 | `s10` | Speed in ms per degree (3–1000, default 15) | `SPEED 10` |
-| `?` | Status | `POS 90 TARGET 90 SPEED 15` |
+| `m180` | Max: how far the servo turns (10–360, default 270) | `MAX 180` |
+| `?` | Status | `POS 90 TARGET 90 SPEED 15 MAX 270` |
 
 Bad input gets an `ERR ...` line and changes nothing. `AT` comes 300 ms after the last step, so when automating a sweep, wait for it before reading the signal.
 
-The servo turns one degree per step (about 4 s for the full 270° by default) so the router isn't jerked around. At power-up it goes to 135° at full speed, since it can't know where it was.
+The servo turns one degree per step (about 4 s for the full 270° by default) so the router isn't jerked around. At power-up it goes to the middle (135° with max 270) at full speed, since it can't know where it was.
 
-If 0 and 270 don't line up with the real ends of travel, adjust `MIN_US` / `MAX_US` (500 / 2500 µs) in [src/main.cpp](src/main.cpp).
+Max is the servo's full travel, the angle the 500–2500 µs pulse range turns it through: 270 for a 270° MG995, `m180` for the common 180° one. The board saves it in flash, so it's kept across restarts and firmware updates. Erasing the flash, or installing an ESP32 image from the web flasher, resets it to 270; check with `?`. Changing max doesn't move the platform: the current position is converted to the new scale.
 
 ## CI and the web flasher
 
