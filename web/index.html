@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signal Finder Flasher</title>
+  <meta name="description" content="Install the Signal Finder turntable firmware on an ESP8266 or ESP32 from the browser.">
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #1b1f24;
+      --muted: #5b6470;
+      --border: #dde1e6;
+      --accent: #0b6bcb;
+      --accent-hover: #0959aa;
+      --on-accent: #ffffff;
+      --code-bg: #eef1f4;
+      --wire-gnd: #6b4226;
+      --wire-vcc: #d0312d;
+      --wire-sig: #f28c28;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111418;
+        --card: #1a1e24;
+        --text: #e6e9ed;
+        --muted: #9aa4b0;
+        --border: #2c323a;
+        --accent: #4d9fff;
+        --accent-hover: #73b3ff;
+        --on-accent: #0b1220;
+        --code-bg: #242a32;
+        --wire-gnd: #a0704f;
+        color-scheme: dark;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main, footer { max-width: 720px; margin: 0 auto; padding: 0 16px; }
+    main { padding-top: 40px; }
+    h1 { margin: 0 0 4px; font-size: 1.8rem; letter-spacing: -0.01em; }
+    .lead { margin: 0 0 28px; color: var(--muted); }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 1.1rem; }
+    .step {
+      display: inline-grid;
+      place-items: center;
+      flex: none;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--on-accent);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    p { margin: 0 0 12px; }
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 14px 0 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+    .hint { color: var(--muted); font-size: 0.9rem; }
+    ul.hint { margin: 16px 0 0; padding-left: 20px; }
+    ul.hint li + li { margin-top: 4px; }
+    #status:empty { display: none; }
+    #status { margin: 12px 0 0; }
+    .install {
+      padding: 10px 28px;
+      font: inherit;
+      font-weight: 600;
+      color: var(--on-accent);
+      background: var(--accent);
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .install:hover { background: var(--accent-hover); }
+    .install:disabled { opacity: 0.5; cursor: not-allowed; }
+    esp-web-install-button:not(:defined) > span { display: none; }
+    .notice { display: block; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    th { color: var(--muted); font-weight: 500; }
+    .wire { white-space: nowrap; }
+    .wire::before {
+      content: "";
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--dot);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    a { color: var(--accent); }
+    footer { padding-top: 8px; padding-bottom: 40px; color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Signal Finder</h1>
+    <p class="lead">Install the turntable firmware on an ESP8266 or ESP32 straight from your browser. Nothing to install except, on some boards, a USB driver.</p>
+
+    <section>
+      <h2><span class="step">1</span>Pick your board</h2>
+      <select id="board" aria-label="Board"></select>
+      <p id="status" class="hint"></p>
+      <dl>
+        <dt>Chip</dt><dd id="chip">–</dd>
+        <dt>Servo signal pin</dt><dd class="servo-pin">GPIO4</dd>
+        <dt>Firmware</dt><dd id="version">–</dd>
+      </dl>
+      <p class="hint" style="margin: 14px 0 0">Not sure which ESP32 board you have? Any board with the same chip works. The installer reads the chip and stops if it doesn't match.</p>
+    </section>
+
+    <section>
+      <h2><span class="step">2</span>Connect and install</h2>
+      <p>Plug the board in with a USB data cable, click Install and choose its serial port.</p>
+      <esp-web-install-button id="install">
+        <button slot="activate" class="install">Install</button>
+        <span slot="unsupported" class="notice">This browser can't open USB serial ports. Use Chrome or Edge on a desktop computer.</span>
+        <span slot="not-allowed" class="notice">Installing only works when this page is served over HTTPS.</span>
+      </esp-web-install-button>
+      <ul class="hint">
+        <li>No port in the list? Try another cable (many are charge-only) and install the driver for your board's USB chip (CH340 or CP210x).</li>
+        <li>ESP32 won't connect? Hold <b>BOOT</b>, tap <b>RESET</b>, release <b>BOOT</b>, then click Install again.</li>
+        <li>After installing, press <b>RESET</b> (or replug) so the new firmware starts.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2><span class="step">3</span>Wire the servo</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>MG995 wire</th><th>Connect to</th></tr></thead>
+          <tbody>
+            <tr><td class="wire" style="--dot: var(--wire-gnd)">Brown (GND)</td><td>Power supply − <b>and</b> the board's GND</td></tr>
+            <tr><td class="wire" style="--dot: var(--wire-vcc)">Red (+)</td><td>Separate 5–6 V supply, 2 A or more. Not the board's 5V pin: the servo's current spikes reset the ESP.</td></tr>
+            <tr><td class="wire" style="--dot: var(--wire-sig)">Orange (signal)</td><td class="servo-pin">GPIO4</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="step">4</span>Send angles</h2>
+      <p>Open any serial terminal at <b>115200 baud</b> with newline line endings (Arduino Serial Monitor, <code>pio device monitor</code>, PuTTY, a script) and send one command per line.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Send</th><th>Does</th><th>Reply</th></tr></thead>
+          <tbody>
+            <tr><td><code>90</code></td><td>Turn to 90° (any whole number 0–270)</td><td><code>MOVING 135 -> 90</code>, then <code>AT 90</code> once it has stopped</td></tr>
+            <tr><td><code>s10</code></td><td>Speed in ms per degree (3–1000, default 15)</td><td><code>SPEED 10</code></td></tr>
+            <tr><td><code>?</code></td><td>Status</td><td><code>POS 90 TARGET 90 SPEED 15</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin: 14px 0 0">When automating a sweep, wait for <code>AT</code> before reading the signal: it's sent 300 ms after the platform stops moving.</p>
+    </section>
+  </main>
+
+  <footer>
+    Flashing uses <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>.<span id="repo" hidden> · <a>Source on GitHub</a></span>
+  </footer>
+
+  <script>
+    const select = document.getElementById("board");
+    const install = document.getElementById("install");
+    const installButton = install.querySelector("button");
+    const STORAGE_KEY = "signal-finder-board";
+
+    function load(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
+    function save(key, value) {
+      try { localStorage.setItem(key, value); } catch {}
+    }
+
+    function show(board) {
+      install.setAttribute("manifest", `firmware/${board.env}/manifest.json`);
+      document.getElementById("chip").textContent = board.chip;
+      document.getElementById("version").textContent = board.version;
+      for (const el of document.querySelectorAll(".servo-pin")) el.textContent = board.pin;
+    }
+
+    async function init() {
+      let boards;
+      try {
+        const res = await fetch("boards.json", { cache: "no-cache" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        boards = await res.json();
+        if (!boards.length) throw new Error("empty board list");
+      } catch {
+        document.getElementById("status").textContent =
+          "No firmware has been published yet. It appears here once the Firmware workflow has run on the default branch.";
+        select.disabled = true;
+        installButton.disabled = true;
+        return;
+      }
+
+      const groups = [
+        ["ESP8266", (b) => b.chip === "ESP8266"],
+        ["ESP32", (b) => b.chip !== "ESP8266"],
+      ];
+      for (const [label, belongs] of groups) {
+        const group = document.createElement("optgroup");
+        group.label = label;
+        for (const b of boards.filter(belongs)) group.append(new Option(b.name, b.env));
+        if (group.children.length) select.append(group);
+      }
+
+      const byEnv = new Map(boards.map((b) => [b.env, b]));
+      const saved = load(STORAGE_KEY);
+      select.value = byEnv.has(saved) ? saved : byEnv.has("d1_mini") ? "d1_mini" : boards[0].env;
+      show(byEnv.get(select.value));
+      select.addEventListener("change", () => {
+        save(STORAGE_KEY, select.value);
+        show(byEnv.get(select.value));
+      });
+    }
+
+    // On GitHub Pages (<owner>.github.io/<repo>/) link back to the repository.
+    if (location.hostname.endsWith(".github.io")) {
+      const owner = location.hostname.split(".")[0];
+      const repo = location.pathname.split("/")[1] || location.hostname;
+      const wrap = document.getElementById("repo");
+      wrap.querySelector("a").href = `https://github.com/${owner}/${repo}`;
+      wrap.hidden = false;
+    }
+
+    init();
+  </script>
+</body>
+</html>
