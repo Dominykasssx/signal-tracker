@@ -7,7 +7,8 @@
 //   0..max   turn to that angle, e.g. "90" (max is 270 unless set with "m")
 //   s<n>     speed in ms per degree, e.g. "s10" (3 = fastest, default 15)
 //   m<n>     servo travel in degrees, e.g. "m180" (default 270, saved in flash)
-//   ?        print position, target, speed and max
+//   r0 / r1  direction: r1 turns the other way (default r1, saved in flash)
+//   ?        print position, target, speed, max and direction
 //
 // Replies:
 //   MOVING <from> -> <to>   command accepted
@@ -39,11 +40,15 @@ const int MAX_DEG_HIGH    = 360;
 const int MIN_US = 500;
 const int MAX_US = 2500;
 
+// Which way angles turn. Set with "r0" / "r1", kept across restarts.
+const bool DEFAULT_REVERSED = true;
+
 const unsigned long MIN_MS_PER_DEG = 3;    // about the MG995's top speed
 const unsigned long MAX_MS_PER_DEG = 1000;
 const unsigned long SETTLE_MS = 300;       // wait after the last step before "AT"
 
 int maxDeg = DEFAULT_MAX_DEG;
+bool reversed = DEFAULT_REVERSED;
 int currentDeg;  // both start at maxDeg / 2, the middle, set in setup()
 int targetDeg;
 unsigned long msPerDeg = 15;  // full 270° turn in ~4 s, gentle on the router
@@ -78,6 +83,7 @@ void servoWriteUs(int us) {
 #endif
 
 int degToUs(int deg) {
+  if (reversed) deg = maxDeg - deg;
   return map(deg, 0, maxDeg, MIN_US, MAX_US);
 }
 
@@ -89,9 +95,17 @@ void setMaxDeg(int deg) {
   maxDeg = deg;
 }
 
+// Flip the direction without moving the platform: positions are mirrored so
+// they still point at the same pulse widths.
+void setReversed(bool r) {
+  currentDeg = maxDeg - currentDeg;
+  targetDeg  = maxDeg - targetDeg;
+  reversed = r;
+}
+
 // --- Saved settings --------------------------------------------------------
 // Survives restarts. Erasing the flash, or installing an ESP32 image from the
-// web flasher, resets it to the default.
+// web flasher, resets them to the defaults.
 
 #if defined(ESP8266)
 const uint16_t SETTINGS_MAGIC = 0x5346;  // tells our data from whatever was in flash
@@ -99,29 +113,34 @@ const uint16_t SETTINGS_MAGIC = 0x5346;  // tells our data from whatever was in 
 struct Settings {
   uint16_t magic;
   uint16_t maxDeg;
+  uint8_t reversed;  // erased flash (0xFF) if saved before this field existed
 };
 
-int loadMaxDeg() {
+void loadSettings(int &deg, int &rev) {
   EEPROM.begin(sizeof(Settings));
   Settings s;
   EEPROM.get(0, s);
-  return s.magic == SETTINGS_MAGIC ? s.maxDeg : 0;
+  if (s.magic != SETTINGS_MAGIC) return;
+  deg = s.maxDeg;
+  rev = s.reversed;
 }
 
-void saveMaxDeg(int deg) {
-  EEPROM.put(0, Settings{SETTINGS_MAGIC, (uint16_t)deg});
+void saveSettings() {
+  EEPROM.put(0, Settings{SETTINGS_MAGIC, (uint16_t)maxDeg, (uint8_t)reversed});
   EEPROM.commit();
 }
 #else
 Preferences prefs;
 
-int loadMaxDeg() {
+void loadSettings(int &deg, int &rev) {
   prefs.begin("turntable");
-  return prefs.getUShort("max_deg", 0);
+  deg = prefs.getUShort("max_deg", 0);
+  rev = prefs.getUChar("reversed", 0xFF);
 }
 
-void saveMaxDeg(int deg) {
-  prefs.putUShort("max_deg", deg);
+void saveSettings() {
+  prefs.putUShort("max_deg", maxDeg);
+  prefs.putUChar("reversed", reversed);
 }
 #endif
 
@@ -143,7 +162,7 @@ Port ports[] = {{&Serial, {}, 0, false}};
 #endif
 
 void say(const char *fmt, ...) {
-  char buf[96];
+  char buf[128];
   va_list args;
   va_start(args, fmt);
   vsnprintf(buf, sizeof(buf), fmt, args);
@@ -159,7 +178,7 @@ void handleLine(char *cmd) {
   if (*cmd == '\0') return;
 
   if (*cmd == '?') {
-    say("POS %d TARGET %d SPEED %lu MAX %d", currentDeg, targetDeg, msPerDeg, maxDeg);
+    say("POS %d TARGET %d SPEED %lu MAX %d REVERSE %d", currentDeg, targetDeg, msPerDeg, maxDeg, reversed);
     return;
   }
 
@@ -171,9 +190,23 @@ void handleLine(char *cmd) {
     }
     if (val != maxDeg) {
       setMaxDeg(val);
-      saveMaxDeg(val);
+      saveSettings();
     }
     say("MAX %d", maxDeg);
+    return;
+  }
+
+  if (*cmd == 'r' || *cmd == 'R') {
+    long val = strtol(cmd + 1, &end, 10);
+    if (end == cmd + 1 || *end != '\0' || val < 0 || val > 1) {
+      say("ERR reverse must be r0 or r1");
+      return;
+    }
+    if (val != reversed) {
+      setReversed(val);
+      saveSettings();
+    }
+    say("REVERSE %d", reversed);
     return;
   }
 
@@ -243,8 +276,10 @@ void setup() {
   WiFi.mode(WIFI_OFF);
 #endif
 
-  int saved = loadMaxDeg();
-  if (saved >= MAX_DEG_LOW && saved <= MAX_DEG_HIGH) maxDeg = saved;
+  int savedMax = 0, savedRev = -1;
+  loadSettings(savedMax, savedRev);
+  if (savedMax >= MAX_DEG_LOW && savedMax <= MAX_DEG_HIGH) maxDeg = savedMax;
+  if (savedRev == 0 || savedRev == 1) reversed = savedRev;
   currentDeg = targetDeg = maxDeg / 2;
 
   servoBegin();
@@ -252,7 +287,7 @@ void setup() {
   lastStepMs = millis();
 
   say("");
-  say("Turntable ready. Send 0..%d (degrees), s<ms/deg> for speed, m<deg> for max, ? for status.", maxDeg);
+  say("Turntable ready. Send 0..%d (degrees), s<ms/deg> for speed, m<deg> for max, r0/r1 for direction, ? for status.", maxDeg);
 }
 
 void loop() {
