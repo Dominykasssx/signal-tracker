@@ -2,6 +2,11 @@
 
 Firmware for a simple servo-driven rotating platform, controlled with text commands over USB serial.
 
+## Related
+
+- **Router software:** [teltonika-signal-tracker](https://github.com/dominykasssx/teltonika-signal-tracker) — RUTOS packages that drive this firmware from a Teltonika router: scan the positions, measure the mobile signal at each and turn to the best one, with a WebUI.
+- **3D-printed stand:** STL files for the turntable on [Thingiverse](https://www.thingiverse.com/thing:7429147).
+
 ## Flash it
 
 **From the browser:** open this repo's GitHub Pages site (`https://dominykasssx.github.io/signal-tracker/`), pick your board, click Install.
